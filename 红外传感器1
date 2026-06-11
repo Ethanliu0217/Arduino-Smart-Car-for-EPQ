@@ -1,118 +1,212 @@
-/*
- * Arduino智能小车循迹测试代码
- * 功能：检测到黑色时发出警报
- * 
- * 硬件接线：
- * - 左红外传感器：连接到模拟输入A0
- * - 中红外传感器：连接到模拟输入A1
- * - 右红外传感器：连接到模拟输入A2
- * - 蜂鸣器：连接到数字引脚8
- * - LED警告灯：连接到数字引脚9
- */
 
-// 定义引脚
-const int LEFT_SENSOR = A0;        // 左传感器
-const int CENTER_SENSOR = A1;      // 中传感器
-const int RIGHT_SENSOR = A2;       // 右传感器
-const int BUZZER_PIN = 8;          // 蜂鸣器
-const int LED_PIN = 9;             // LED灯
+//===============================================================
+//#include <Servo.h> 
+int Left_motor_go=8;     //左电机前进(IN1)
+int Left_motor_back=9;     //左电机后退(IN2)
 
-// 黑色检测阈值（根据实际传感器调整）
-const int BLACK_THRESHOLD = 500;   // 低于此值表示检测到黑色
+int Right_motor_go=10;    // 右电机前进(IN3)
+int Right_motor_back=11;    // 右电机后退(IN4)
 
-// 变量
-int leftValue, centerValue, rightValue;
-bool blackDetected = false;
+int key=A2;//定义按键 数字A2 接口
+int beep=A3;//定义蜂鸣器 数字A3 接口
 
-void setup() {
-  // 初始化串口用于调试
-  Serial.begin(9600);
-  
-  // 配置引脚
-  pinMode(BUZZER_PIN, OUTPUT);
-  pinMode(LED_PIN, OUTPUT);
-  pinMode(LEFT_SENSOR, INPUT);
-  pinMode(CENTER_SENSOR, INPUT);
-  pinMode(RIGHT_SENSOR, INPUT);
-  
-  // 关闭蜂鸣器和LED
-  digitalWrite(BUZZER_PIN, LOW);
-  digitalWrite(LED_PIN, LOW);
-  
-  Serial.println("循迹小车启动！");
-  delay(1000);
+int LED=7;//定义LED 数字7 接口
+
+const int SensorLeft_2 = 5;     //左边红外避障传感器
+const int SensorRight_2 = 6;    //右边红外避障传感器
+
+int SL_2;    //左边红外避障传感器状态
+int SR_2;    //右边红外避障传感器状态
+
+void setup()
+{
+  Serial.begin(9600); // 初始化串口通讯，波特率9600
+  Serial.println("System Initializing...");
+
+  //初始化电机驱动IO为输出方式
+  pinMode(Left_motor_go,OUTPUT); // PIN 8 ( 无 PWM)
+  pinMode(Left_motor_back,OUTPUT); // PIN 9 (PWM)
+  pinMode(Right_motor_go,OUTPUT);// PIN 10 (PWM) 
+  pinMode(Right_motor_back,OUTPUT);// PIN 11 (PWM)
+  pinMode(key,INPUT);//定义按键接口为输入接口
+  pinMode(beep,OUTPUT);//定义蜂鸣器为输出接口
+  pinMode(LED,OUTPUT);//定义LED为输出接口
+
+  pinMode(SensorRight_2, INPUT); //定义中间避障传感器为输入
+  pinMode(SensorLeft_2, INPUT); //定义中间避障传感器为输入
+
+  Serial.println("System Ready. Waiting for key press...");
+}
+//=======================智能小车的基本动作=========================
+//void run(int time)     // 前进
+void run()     // 前进
+{
+  Serial.println("Action: Moving Forward");
+  digitalWrite(Right_motor_go,HIGH);  // 右电机前进
+  digitalWrite(Right_motor_back,LOW);     
+  analogWrite(Right_motor_go,160);
+  analogWrite(Right_motor_back,0);
+  digitalWrite(Left_motor_go,LOW);    // 左电机前进 (IN1=LOW, IN2=HIGH)
+  digitalWrite(Left_motor_back,HIGH);
+  analogWrite(Left_motor_go,0);
+  analogWrite(Left_motor_back,160);
 }
 
-void loop() {
-  // 读取三个传感器的值
-  leftValue = analogRead(LEFT_SENSOR);
-  centerValue = analogRead(CENTER_SENSOR);
-  rightValue = analogRead(RIGHT_SENSOR);
+void brake()  //刹车，停车
+{
+  Serial.println("Action: Braking");
+  digitalWrite(Right_motor_go,LOW);
+  digitalWrite(Right_motor_back,LOW);
+  digitalWrite(Left_motor_go,LOW);
+  digitalWrite(Left_motor_back,LOW);
+}
+
+void left()         //左转(左轮不动，右轮前进)
+{
+  Serial.println("Action: Turning Left");
+  digitalWrite(Right_motor_go,HIGH);  // 右电机前进
+  digitalWrite(Right_motor_back,LOW);
+  analogWrite(Right_motor_go,200); 
+  analogWrite(Right_motor_back,0);
+  digitalWrite(Left_motor_go,LOW);    //左轮不动
+  digitalWrite(Left_motor_back,LOW);
+  analogWrite(Left_motor_go,0); 
+  analogWrite(Left_motor_back,0);
+}
+
+void spin_left( )         //左转(左轮后退，右轮前进)
+{
+  Serial.println("Action: Spinning Left");
+  digitalWrite(Right_motor_go,HIGH);  // 右电机前进
+  digitalWrite(Right_motor_back,LOW);
+  analogWrite(Right_motor_go,200); 
+  analogWrite(Right_motor_back,0);
+  digitalWrite(Left_motor_go,HIGH);   //左轮后退 (IN1=HIGH, IN2=LOW)
+  digitalWrite(Left_motor_back,LOW);
+  analogWrite(Left_motor_go,200); 
+  analogWrite(Left_motor_back,0);
+}
+
+void right()        //右转(右轮不动，左轮前进)
+{
+  Serial.println("Action: Turning Right");
+  digitalWrite(Right_motor_go,LOW);   //右电机不动
+  digitalWrite(Right_motor_back,LOW);
+  analogWrite(Right_motor_go,0); 
+  analogWrite(Right_motor_back,0);
+  digitalWrite(Left_motor_go,LOW);    //左电机前进 (IN1=LOW, IN2=HIGH)
+  digitalWrite(Left_motor_back,HIGH);
+  analogWrite(Left_motor_go,0); 
+  analogWrite(Left_motor_back,200);
+}
+
+void spin_right()        //右转(右轮后退，左轮前进)
+{
+  Serial.println("Action: Spinning Right");
+  digitalWrite(Right_motor_go,LOW);   //右电机后退
+  digitalWrite(Right_motor_back,HIGH);
+  analogWrite(Right_motor_go,0); 
+  analogWrite(Right_motor_back,200);
+  digitalWrite(Left_motor_go,LOW);    //左电机前进 (IN1=LOW, IN2=HIGH)
+  digitalWrite(Left_motor_back,HIGH);
+  analogWrite(Left_motor_go,0); 
+  analogWrite(Left_motor_back,200);
+}
+
+void back()          //后退
+{
+  Serial.println("Action: Moving Backward");
+  digitalWrite(Right_motor_go,LOW);   //右轮后退
+  digitalWrite(Right_motor_back,HIGH);
+  analogWrite(Right_motor_go,0);
+  analogWrite(Right_motor_back,150);
+  digitalWrite(Left_motor_go,HIGH);   //左轮后退 (IN1=HIGH, IN2=LOW)
+  digitalWrite(Left_motor_back,LOW);
+  analogWrite(Left_motor_go,150);
+  analogWrite(Left_motor_back,0);
+}
+//==========================================================
+
+void keysacn()//按键扫描
+{
+  Serial.println("System Ready. Waiting for Key Press (A2)...");
   
-  // 打印传感器值用于调试
-  Serial.print("L:");
-  Serial.print(leftValue);
-  Serial.print(" C:");
-  Serial.print(centerValue);
-  Serial.print(" R:");
-  Serial.println(rightValue);
-  
-  // 检测黑色（任何传感器检测到）
-  blackDetected = (leftValue < BLACK_THRESHOLD) || 
-                  (centerValue < BLACK_THRESHOLD) || 
-                  (rightValue < BLACK_THRESHOLD);
-  
-  if (blackDetected) {
-    // 检测到黑色，发出警报
-    soundAlarm();
-    digitalWrite(LED_PIN, HIGH);  // 点亮LED
-  } else {
-    // 未检测到黑色，关闭警报
-    digitalWrite(BUZZER_PIN, LOW);
-    digitalWrite(LED_PIN, LOW);
+  // 1. 等待按键被按下 (A2=HIGH 为按下)
+  while(digitalRead(key) == LOW) 
+  {
+    // 循环等待
   }
   
-  delay(100);  // 延迟100ms
+  // 2. 按键已按下，执行反馈
+  delay(10); // 消抖
+  if(digitalRead(key) == HIGH)
+  {
+    Serial.println("Key Pressed! Starting obstacle avoidance...");
+    digitalWrite(beep, HIGH); // 蜂鸣器提示
+    
+    // 3. 等待按键被松开 (松开 A2=LOW)
+    while(digitalRead(key) == HIGH) 
+    {
+      // 保持蜂鸣器响
+    }
+    digitalWrite(beep, LOW); // 松开后停止蜂鸣器
+    delay(200); // 松开后给一点启动缓冲
+  }
 }
 
-// 蜂鸣器警报函数
-void soundAlarm() {
-  // 间断性蜂鸣：500Hz频率，100ms鸣叫，100ms停止
-  digitalWrite(BUZZER_PIN, HIGH);
-  delayMicroseconds(1000);
-  digitalWrite(BUZZER_PIN, LOW);
-  delayMicroseconds(1000);
-}
-
-// 校准函数（可选）：用于确定最佳阈值
-void calibrate() {
-  Serial.println("开始校准，请将传感器放在黑色表面上...");
-  delay(3000);
-  
-  int blackLeft = analogRead(LEFT_SENSOR);
-  int blackCenter = analogRead(CENTER_SENSOR);
-  int blackRight = analogRead(RIGHT_SENSOR);
-  
-  Serial.println("黑色读数：");
-  Serial.print("L:"); Serial.print(blackLeft);
-  Serial.print(" C:"); Serial.print(blackCenter);
-  Serial.print(" R:"); Serial.println(blackRight);
-  
-  Serial.println("请将传感器放在白色表面上...");
-  delay(3000);
-  
-  int whiteLeft = analogRead(LEFT_SENSOR);
-  int whiteCenter = analogRead(CENTER_SENSOR);
-  int whiteRight = analogRead(RIGHT_SENSOR);
-  
-  Serial.println("白色读数：");
-  Serial.print("L:"); Serial.print(whiteLeft);
-  Serial.print(" C:"); Serial.print(whiteCenter);
-  Serial.print(" R:"); Serial.println(whiteRight);
-  
-  // 推荐阈值
-  int recommendedThreshold = (blackLeft + blackCenter + blackRight + 
-                             whiteLeft + whiteCenter + whiteRight) / 6;
-  Serial.print("推荐阈值: ");
-  Serial.println(recommendedThreshold);
+void loop()
+{
+  keysacn();     //调用按键扫描函数
+  while(1)
+  {
+    // 有信号为LOW  没有信号为HIGH
+    SL_2 = digitalRead(SensorLeft_2);
+    SR_2 = digitalRead(SensorRight_2);
+    
+    if (SL_2 == HIGH && SR_2 == HIGH)
+    {
+        // 1. 无障碍物：前进
+        run();
+        digitalWrite(beep, LOW);
+    }
+    else if (SL_2 == HIGH && SR_2 == LOW)
+    {
+        // 2. 右边探测到有障碍物：停止 -> 后退 -> 原地左转
+        Serial.println("Obstacle detected on RIGHT side. Sequence: Brake-Back-SpinLeft");
+        digitalWrite(beep, HIGH);
+        brake();
+        delay(300);
+        back();
+        delay(400);
+        spin_left();
+        delay(500);
+        digitalWrite(beep, LOW);
+    }
+    else if (SR_2 == HIGH && SL_2 == LOW)
+    {
+        // 3. 左边探测到有障碍物：停止 -> 后退 -> 原地右转
+        Serial.println("Obstacle detected on LEFT side. Sequence: Brake-Back-SpinRight");
+        digitalWrite(beep, HIGH);
+        brake();
+        delay(300);
+        back();
+        delay(400);
+        spin_right();
+        delay(500);
+        digitalWrite(beep, LOW);
+    }
+    else
+    {
+        // 4. 两边探测到有障碍物：停止 -> 后退 -> 旋转(默认左旋)
+        Serial.println("Obstacles detected on BOTH sides! Sequence: Brake-Back-SpinLeft");
+        digitalWrite(beep, HIGH);
+        brake();
+        delay(300);
+        back();
+        delay(400);
+        spin_left();
+        delay(500);
+        digitalWrite(beep, LOW);
+    }
+  }
 }
