@@ -1,0 +1,118 @@
+/*
+ * Arduino智能小车循迹测试代码
+ * 功能：检测到黑色时发出警报
+ * 
+ * 硬件接线：
+ * - 左红外传感器：连接到模拟输入A0
+ * - 中红外传感器：连接到模拟输入A1
+ * - 右红外传感器：连接到模拟输入A2
+ * - 蜂鸣器：连接到数字引脚8
+ * - LED警告灯：连接到数字引脚9
+ */
+
+// 定义引脚
+const int LEFT_SENSOR = A0;        // 左传感器
+const int CENTER_SENSOR = A1;      // 中传感器
+const int RIGHT_SENSOR = A2;       // 右传感器
+const int BUZZER_PIN = 8;          // 蜂鸣器
+const int LED_PIN = 9;             // LED灯
+
+// 黑色检测阈值（根据实际传感器调整）
+const int BLACK_THRESHOLD = 500;   // 低于此值表示检测到黑色
+
+// 变量
+int leftValue, centerValue, rightValue;
+bool blackDetected = false;
+
+void setup() {
+  // 初始化串口用于调试
+  Serial.begin(9600);
+  
+  // 配置引脚
+  pinMode(BUZZER_PIN, OUTPUT);
+  pinMode(LED_PIN, OUTPUT);
+  pinMode(LEFT_SENSOR, INPUT);
+  pinMode(CENTER_SENSOR, INPUT);
+  pinMode(RIGHT_SENSOR, INPUT);
+  
+  // 关闭蜂鸣器和LED
+  digitalWrite(BUZZER_PIN, LOW);
+  digitalWrite(LED_PIN, LOW);
+  
+  Serial.println("循迹小车启动！");
+  delay(1000);
+}
+
+void loop() {
+  // 读取三个传感器的值
+  leftValue = analogRead(LEFT_SENSOR);
+  centerValue = analogRead(CENTER_SENSOR);
+  rightValue = analogRead(RIGHT_SENSOR);
+  
+  // 打印传感器值用于调试
+  Serial.print("L:");
+  Serial.print(leftValue);
+  Serial.print(" C:");
+  Serial.print(centerValue);
+  Serial.print(" R:");
+  Serial.println(rightValue);
+  
+  // 检测黑色（任何传感器检测到）
+  blackDetected = (leftValue < BLACK_THRESHOLD) || 
+                  (centerValue < BLACK_THRESHOLD) || 
+                  (rightValue < BLACK_THRESHOLD);
+  
+  if (blackDetected) {
+    // 检测到黑色，发出警报
+    soundAlarm();
+    digitalWrite(LED_PIN, HIGH);  // 点亮LED
+  } else {
+    // 未检测到黑色，关闭警报
+    digitalWrite(BUZZER_PIN, LOW);
+    digitalWrite(LED_PIN, LOW);
+  }
+  
+  delay(100);  // 延迟100ms
+}
+
+// 蜂鸣器警报函数
+void soundAlarm() {
+  // 间断性蜂鸣：500Hz频率，100ms鸣叫，100ms停止
+  digitalWrite(BUZZER_PIN, HIGH);
+  delayMicroseconds(1000);
+  digitalWrite(BUZZER_PIN, LOW);
+  delayMicroseconds(1000);
+}
+
+// 校准函数（可选）：用于确定最佳阈值
+void calibrate() {
+  Serial.println("开始校准，请将传感器放在黑色表面上...");
+  delay(3000);
+  
+  int blackLeft = analogRead(LEFT_SENSOR);
+  int blackCenter = analogRead(CENTER_SENSOR);
+  int blackRight = analogRead(RIGHT_SENSOR);
+  
+  Serial.println("黑色读数：");
+  Serial.print("L:"); Serial.print(blackLeft);
+  Serial.print(" C:"); Serial.print(blackCenter);
+  Serial.print(" R:"); Serial.println(blackRight);
+  
+  Serial.println("请将传感器放在白色表面上...");
+  delay(3000);
+  
+  int whiteLeft = analogRead(LEFT_SENSOR);
+  int whiteCenter = analogRead(CENTER_SENSOR);
+  int whiteRight = analogRead(RIGHT_SENSOR);
+  
+  Serial.println("白色读数：");
+  Serial.print("L:"); Serial.print(whiteLeft);
+  Serial.print(" C:"); Serial.print(whiteCenter);
+  Serial.print(" R:"); Serial.println(whiteRight);
+  
+  // 推荐阈值
+  int recommendedThreshold = (blackLeft + blackCenter + blackRight + 
+                             whiteLeft + whiteCenter + whiteRight) / 6;
+  Serial.print("推荐阈值: ");
+  Serial.println(recommendedThreshold);
+}
