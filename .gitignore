@@ -1,0 +1,24 @@
+# Arduino CLI and Arduino IDE build artifacts
+build/
+out/
+.arduino/
+*.avr.*
+*.ino.cpp
+*.elf
+*.eep
+*.hex
+*.map
+*.bin
+*.o
+*.d
+*.pdf
+*.txt
+*.doc
+
+# Editor settings and operating-system files
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+desktop.ini
+*.tmp
