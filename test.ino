@@ -1,3 +1,4 @@
+#include <string.h>
 #include <Wire.h>
 
 namespace {
@@ -8,6 +9,7 @@ constexpr uint8_t kMotorTypeRegister = 0x01;
 constexpr uint8_t kMotorDeadZoneRegister = 0x02;
 constexpr uint8_t kMotorPulseLineRegister = 0x03;
 constexpr uint8_t kMotorReductionRatioRegister = 0x04;
+constexpr uint8_t kWheelDiameterRegister = 0x05;
 constexpr uint8_t kSpeedControlRegister = 0x06;
 constexpr uint8_t kPwmControlRegister = 0x07;
 constexpr uint8_t kEncoder10msRegisters[] = {0x10, 0x11, 0x12, 0x13};
@@ -28,12 +30,15 @@ constexpr uint8_t kInfraredLeftPin = 3;
 constexpr uint8_t kInfraredRightPin = 4;
 constexpr unsigned long kInfraredSensorIntervalMs = 50;
 
+// Yahboom type 3: encoder TT motor. Closed-loop speed is required; PWM is type 4 only.
 constexpr uint8_t kTtMotorType = 3;
 constexpr uint16_t kTtMotorPulseLine = 13;
-constexpr uint16_t kTtMotorReductionRatio = 48;
+constexpr uint16_t kTtMotorReductionRatio = 45;
 constexpr uint16_t kTtMotorDeadZone = 1250;
+constexpr float kTtWheelDiameterMm = 68.0F;
 constexpr int16_t kTestPwm = 1900;
 constexpr int16_t kTestSpeed = 800;
+constexpr unsigned long kDriverConfigDelayMs = 100;
 constexpr unsigned long kTestDurationMs = 5000;
 constexpr unsigned long kEncoderMonitorIntervalMs = 200;
 
@@ -135,6 +140,12 @@ bool writeMotorType(uint8_t motorType) {
 bool writeWord(uint8_t registerAddress, uint16_t value) {
   const uint8_t data[] = {static_cast<uint8_t>(value >> 8),
                           static_cast<uint8_t>(value)};
+  return writeRegister(registerAddress, data, sizeof(data));
+}
+
+bool writeFloat(uint8_t registerAddress, float value) {
+  uint8_t data[sizeof(float)];
+  memcpy(data, &value, sizeof(data));
   return writeRegister(registerAddress, data, sizeof(data));
 }
 
@@ -277,7 +288,11 @@ bool setMotorSpeed(int16_t motor1, int16_t motor2, int16_t motor3,
 }
 
 bool stopAllMotors() {
-  return setMotorPwm(0, 0, 0, 0);
+  // Type 3 uses the speed register; also clear PWM in case a previous open-loop test ran.
+  const bool speedStopped = setMotorSpeed(0, 0, 0, 0);
+  const bool pwmStopped = setMotorPwm(0, 0, 0, 0);
+  motorsRunning = false;
+  return speedStopped || pwmStopped;
 }
 
 bool checkUltrasonicSafety() {
@@ -318,9 +333,10 @@ void printI2cStatus() {
 void printHelp() {
   Serial.println(F("Commands:"));
   Serial.println(F("  i - probe I2C driver"));
-  Serial.println(F("  1-4 - test motor M1-M4 at PWM 1900 for 5 s"));
-  Serial.println(F("  b - test wheel motors M2 and M4 together for 5 s"));
-  Serial.println(F("  v - test wheel motors M2 and M4 at speed 800 for 5 s"));
+  Serial.println(F("  1-4 - test motor M1-M4 at speed 800 for 5 s"));
+  Serial.println(F("  b - test wheel motors M2 and M4 at speed 800 for 5 s"));
+  Serial.println(F("  v - same as b (closed-loop speed)"));
+  Serial.println(F("  p - test wheel motors M2 and M4 at PWM 1900 for 5 s"));
   Serial.println(F("  e - read the four 10ms encoder counts"));
   Serial.println(F("  t - read the four total encoder counts"));
   Serial.println(F("  m - toggle encoder monitoring every 200ms"));
@@ -331,18 +347,13 @@ void printHelp() {
   Serial.println(F("  h - show this help"));
 }
 
-void runMotorTest(char motorSelection, bool speedMode = false) {
+void runMotorTest(char motorSelection, bool speedMode = true) {
   if (!driverReady) {
     printI2cStatus();
   }
 
   if (!driverReady) {
     Serial.println(F("Test blocked: motor driver is not responding."));
-    return;
-  }
-
-  if (ultrasonicMonitorEnabled && checkUltrasonicSafety()) {
-    Serial.println(F("Test blocked: obstacle is closer than 20 cm."));
     return;
   }
 
@@ -370,19 +381,16 @@ void runMotorTest(char motorSelection, bool speedMode = false) {
     return;
   }
 
-  if (motorSelection == 'B') {
-    Serial.print(F("Wheel motors M2 and M4 running together at PWM "));
-    Serial.print(kTestPwm);
-    Serial.println(F("."));
-  } else if (motorSelection == 'V') {
-    Serial.print(F("Wheel motors M2 and M4 running at speed "));
-    Serial.print(kTestSpeed);
+  if (motorSelection == 'B' || motorSelection == 'V') {
+    Serial.print(F("Wheel motors M2 and M4 running at "));
+    Serial.print(speedMode ? F("speed ") : F("PWM "));
+    Serial.print(speedMode ? kTestSpeed : kTestPwm);
     Serial.println(F("."));
   } else {
     Serial.print(F("Motor M"));
     Serial.print(motorSelection);
-    Serial.print(F(" running at PWM "));
-    Serial.print(kTestPwm);
+    Serial.print(speedMode ? F(" running at speed ") : F(" running at PWM "));
+    Serial.print(speedMode ? kTestSpeed : kTestPwm);
     Serial.println(F("."));
   }
 
@@ -456,21 +464,24 @@ void setup() {
 
   if (driverReady) {
     const bool typeConfigured = writeMotorType(kTtMotorType);
-    delay(20);
-    const bool pulseLineConfigured =
-        writeWord(kMotorPulseLineRegister, kTtMotorPulseLine);
-    delay(20);
+    delay(kDriverConfigDelayMs);
     const bool ratioConfigured =
         writeWord(kMotorReductionRatioRegister, kTtMotorReductionRatio);
-    delay(20);
+    delay(kDriverConfigDelayMs);
+    const bool pulseLineConfigured =
+        writeWord(kMotorPulseLineRegister, kTtMotorPulseLine);
+    delay(kDriverConfigDelayMs);
+    const bool wheelConfigured =
+        writeFloat(kWheelDiameterRegister, kTtWheelDiameterMm);
+    delay(kDriverConfigDelayMs);
     const bool deadZoneConfigured =
         writeWord(kMotorDeadZoneRegister, kTtMotorDeadZone);
-    delay(20);
+    delay(kDriverConfigDelayMs);
     const bool stopped = stopAllMotors();
 
-    driverReady = typeConfigured && pulseLineConfigured && ratioConfigured &&
-                  deadZoneConfigured && stopped;
-    Serial.println(driverReady ? F("Driver configured; motors stopped.")
+    driverReady = typeConfigured && ratioConfigured && pulseLineConfigured &&
+                  wheelConfigured && deadZoneConfigured && stopped;
+    Serial.println(driverReady ? F("Driver configured as TT encoder (type 3); motors stopped.")
                                : F("Driver configuration failed."));
   }
 
@@ -541,6 +552,10 @@ void loop() {
     case 'v':
     case 'V':
       runMotorTest('V', true);
+      break;
+    case 'p':
+    case 'P':
+      runMotorTest('B', false);
       break;
     case 'e':
     case 'E':
